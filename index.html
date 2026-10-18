@@ -78,10 +78,10 @@ button:disabled{opacity:.5;cursor:default}
  <textarea id="def" placeholder="정의 문장"></textarea>
  <label for="comp">구성요소 <small>한 줄에 하나 · "키워드: 설명" · 앞에 공백 두 칸 = 하위</small></label>
  <textarea id="comp" class="tall" placeholder="입력부: 데이터를 받아들이는 부분&#10;처리부: …&#10;  하위 항목: …"></textarea>
+ <div class="row" style="margin-top:6px"><span class="hint" style="margin:0">두음</span><input type="text" id="dum" placeholder="구성요소 두음 (선택)"><button id="bDum" type="button">구성요소로 자동</button></div>
  <label for="tech">기술요소 <small>형식은 구성요소와 같음</small></label>
  <textarea id="tech" class="tall" placeholder="기술1: 설명&#10;기술2: 설명"></textarea>
- <label for="dum">두음 <small>(선택)</small></label>
- <div class="row"><input type="text" id="dum" placeholder="예: 입처출"><button id="bDum" type="button">구성요소로 자동</button></div>
+ <div class="row" style="margin-top:6px"><span class="hint" style="margin:0">두음</span><input type="text" id="dumT" placeholder="기술요소 두음 (선택)"><button id="bDumT" type="button">기술요소로 자동</button></div>
  <label>그림 <small>클릭·끌어놓기·Ctrl+V 붙여넣기</small></label>
  <div class="drop" id="drop">그림을 여기에 놓거나 클릭해서 선택 (여러 장 가능)</div>
  <input type="file" id="fImg" accept="image/*" multiple hidden>
@@ -124,8 +124,8 @@ function autoDum(txt){return parseLines(txt).filter(o=>o.lv===0).map(o=>{const c
 const nl=s=>esc(s).replace(/\n/g,'<br>');
 
 // ---------- form ----------
-function readForm(){return {deck:$('deck').value.trim()||'빅업141 토픽',topic:$('topic').value.trim(),def:$('def').value.trim(),comp:$('comp').value.replace(/\s+$/,''),tech:$('tech').value.replace(/\s+$/,''),dum:$('dum').value.trim(),tags:$('tags').value.trim(),imgs:imgs.slice()}}
-function fillForm(t){cur=t;$('deck').value=t?t.deck:prefs.get('deck','빅업141 토픽');for(const k of ['topic','def','comp','tech','dum','tags'])$(k).value=t?t[k]||'':'';imgs=t?t.imgs.slice():[];
+function readForm(){return {deck:$('deck').value.trim()||'빅업141 토픽',topic:$('topic').value.trim(),def:$('def').value.trim(),comp:$('comp').value.replace(/\s+$/,''),tech:$('tech').value.replace(/\s+$/,''),dum:$('dum').value.trim(),dumT:$('dumT').value.trim(),tags:$('tags').value.trim(),imgs:imgs.slice()}}
+function fillForm(t){cur=t;$('deck').value=t?t.deck:prefs.get('deck','빅업141 토픽');for(const k of ['topic','def','comp','tech','dum','dumT','tags'])$(k).value=t?t[k]||'':'';imgs=t?t.imgs.slice():[];
  if(!t&&prefs.get('tags',''))$('tags').value=prefs.get('tags','');
  $('formTitle').textContent=t?'토픽 수정':'새 토픽';$('bDelete').disabled=!t;renderThumbs();renderPreview();renderList();}
 function msg(t,cls){const m=$('msg');m.textContent=t;m.className='msg '+(cls||'');}
@@ -162,12 +162,13 @@ const CARD_DEFS=[
  {name:'그림',need:'imgs',ask:'개념도/그림을 그려 보세요'}];
 function cardsOf(t){return CARD_DEFS.map((c,ord)=>({...c,ord})).filter(c=>c.need==='imgs'?t.imgs.length:t[c.need])}
 function renderPreview(){const t=readForm();if(!t.topic&&!t.def&&!t.comp&&!t.tech&&!t.imgs.length){$('pv').innerHTML='<div class="empty">입력하면 여기에 카드 모양이 보입니다.</div>';return}
- const fig=t.imgs.map(u=>`<img src="${u}">`).join('');const dum=t.dum?`<div class="dum">두음 <b>${esc(t.dum)}</b></div>`:'';
+ const fig=t.imgs.map(u=>`<img src="${u}">`).join('');const dumH=s=>s?`<div class="dum">두음 <b>${esc(s)}</b></div>`:'';
  $('pv').innerHTML=cardsOf(t).map(c=>{let back='';
-  if(c.need==='def')back=nl(t.def);else if(c.need==='comp')back=dum+listHTML(t.comp)+(fig?'<br>'+fig:'');else if(c.need==='tech')back=listHTML(t.tech);else back=fig;
+  if(c.need==='def')back=nl(t.def);else if(c.need==='comp')back=dumH(t.dum)+listHTML(t.comp)+(fig?'<br>'+fig:'');else if(c.need==='tech')back=dumH(t.dumT)+listHTML(t.tech);else back=fig;
   return `<div class="pv"><div class="q">${esc(t.topic||'(토픽)')}</div><div class="ask">▶ ${c.ask}</div><hr>${back}</div>`}).join('')||'<div class="empty">내용 칸을 채우면 카드가 생깁니다.</div>'}
-['topic','def','comp','tech','dum'].forEach(k=>$(k).addEventListener('input',renderPreview));
-$('bDum').onclick=()=>{const d=autoDum($('comp').value)||autoDum($('tech').value);if(d){$('dum').value=d;renderPreview()}else msg('구성요소/기술요소에 항목을 먼저 입력하세요.','err')};
+['topic','def','comp','tech','dum','dumT'].forEach(k=>$(k).addEventListener('input',renderPreview));
+const dumBtn=(btn,src,dst,name)=>$(btn).onclick=()=>{const d=autoDum($(src).value);if(d){$(dst).value=d;renderPreview()}else msg(`${name}에 항목을 먼저 입력하세요.`,'err')};
+dumBtn('bDum','comp','dum','구성요소');dumBtn('bDumT','tech','dumT','기술요소');
 
 // ---------- list ----------
 function renderList(){const q=$('q').value.trim().toLowerCase();
@@ -199,12 +200,12 @@ const CSS=`.card{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;fo
 .dum{background:#e8eefc;color:#1d1d1f;border-radius:6px;padding:3px 8px;display:inline-block;margin-bottom:6px}.dum b{color:#2f5bd3}
 .fig img{max-width:100%;border:1px solid #ddd;border-radius:4px;margin:6px 0;background:#fff}
 .tag{font-size:12px;color:#888}`;
-const FIELDS=['토픽','정의','구성요소','기술요소','그림','두음'];
+const FIELDS=['토픽','정의','구성요소','기술요소','그림','두음','기술두음'];
 const Q=(gate,ask)=>`{{#${gate}}}<div class="q">{{토픽}}</div><div class="ask">▶ ${ask}</div>{{/${gate}}}`;
 const TMPLS=[
  {name:'정의',qfmt:Q('정의','정의는?'),afmt:'{{FrontSide}}<hr id=answer>{{정의}}'},
  {name:'구성요소',qfmt:Q('구성요소','구성요소는?'),afmt:'{{FrontSide}}<hr id=answer>{{#두음}}<div class="dum">두음 <b>{{두음}}</b></div>{{/두음}}{{구성요소}}{{#그림}}<div class="fig">{{그림}}</div>{{/그림}}'},
- {name:'기술요소',qfmt:Q('기술요소','기술요소는?'),afmt:'{{FrontSide}}<hr id=answer>{{기술요소}}'},
+ {name:'기술요소',qfmt:Q('기술요소','기술요소는?'),afmt:'{{FrontSide}}<hr id=answer>{{#기술두음}}<div class="dum">두음 <b>{{기술두음}}</b></div>{{/기술두음}}{{기술요소}}'},
  {name:'그림',qfmt:Q('그림','개념도/그림을 그려 보세요'),afmt:'{{FrontSide}}<hr id=answer><div class="fig">{{그림}}</div>'}];
 function ankiList(txt){return parseLines(txt).map(o=>`<div class="it" data-lv="${o.lv}">${o.lv?'ㄴ ':'· '}<b>${esc(o.k)}</b>${o.d?': '+esc(o.d):''}</div>`).join('')}
 function deckId(name){let h=0;for(const ch of name)h=(h*31+ch.codePointAt(0))%1e8;return 1760000000000+h}
@@ -237,7 +238,7 @@ CREATE INDEX ix_notes_usn on notes (usn);CREATE INDEX ix_cards_usn on cards (usn
  const ordered=[...list].sort((a,b)=>a.created-b.created);
  for(const t of ordered){
   const figs=t.imgs.map((u,i)=>{const name=`topic_${t.id}_${i+1}.jpg`;zip.file(String(mi),b64ToBytes(u));media[mi++]=name;return `<img src="${name}">`}).join('');
-  const flds=[esc(t.topic),nl(t.def),ankiList(t.comp),ankiList(t.tech),figs,esc(t.dum)];
+  const flds=[esc(t.topic),nl(t.def),ankiList(t.comp),ankiList(t.tech),figs,esc(t.dum),esc(t.dumT)];
   const sfld=t.topic;const csum=parseInt((await sha1hex(sfld)).slice(0,8),16);
   const tags=t.tags?' '+t.tags.split(/\s+/).filter(Boolean).join(' ')+' ':'';
   const mod=Math.floor((t.updated||now)/1000);
@@ -256,7 +257,9 @@ $('bExport').onclick=async()=>{if(!topics.length)return msg('저장된 토픽이
 // ---------- init ----------
 (async()=>{await openDB();if(!db)msg('이 브라우저에서는 저장소를 쓸 수 없어 새로고침하면 내용이 사라집니다. 백업 저장을 꼭 하세요.','err');
  try{topics=(await dbAll()||[]).sort((a,b)=>b.updated-a.updated)}catch(e){topics=[]}
- fillForm(null);})();
+ // 불러오는 사이에 이미 입력을 시작했으면 입력 내용은 그대로 둠
+ if(['topic','def','comp','tech'].some(k=>$(k).value.trim())||imgs.length)renderList();else fillForm(null);
+ window.__ready=true;})();
 </script>
 </body>
 </html>
