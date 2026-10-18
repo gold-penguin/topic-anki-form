@@ -55,11 +55,20 @@ button:disabled{opacity:.5;cursor:default}
 .dum{background:var(--acc2);border-radius:6px;padding:2px 8px;display:inline-block;margin-bottom:4px}
 .hint{font-size:12px;color:var(--sub);margin-top:4px}
 .empty{color:var(--sub);font-size:13px;padding:16px 0;text-align:center}
+.mode{display:inline-flex;gap:10px;font-size:13px;border:1px solid var(--line);border-radius:8px;padding:5px 10px}
+.mode label{display:inline;margin:0;font-weight:400;cursor:pointer}
+.step{border:1px solid var(--line);border-radius:8px;margin:6px 0}
+.step .sh{padding:6px 10px;font-weight:700;cursor:pointer;color:var(--acc)}
+.step:not(.open) .sh::after{content:"  ▸ 눌러서 보기";font-weight:400;font-size:12px;color:var(--sub)}
+.step .sb{padding:0 10px 8px}
+.step:not(.open) .sb{display:none}
+.nextBtn{width:100%;margin-top:6px}
 </style>
 </head>
 <body>
 <header>
 <h1>토픽 Anki 등록</h1>
+<span class="mode" title="Anki 카드 만드는 방식"><label><input type="radio" name="mode" value="step"> 단계별 공개 1장</label><label><input type="radio" name="mode" value="split"> 칸별 따로</label></span>
 <button id="bExport" class="pri">Anki 파일(.apkg) 받기</button>
 <button id="bBackup">백업 저장</button>
 <button id="bRestore">백업 불러오기</button>
@@ -93,7 +102,7 @@ button:disabled{opacity:.5;cursor:default}
   <button id="bDelete" class="del" disabled>삭제</button>
  </div>
  <div class="msg" id="msg"></div>
- <div class="preview"><b>카드 미리보기</b> <span class="hint">— 내용이 있는 칸마다 카드 1장씩 만들어집니다</span><div id="pv"></div></div>
+ <div class="preview"><b>카드 미리보기</b> <span class="hint" id="pvHint"></span><div id="pv"></div></div>
 </section>
 <section class="panel">
  <div class="row"><b>저장된 토픽 <span id="cnt">0</span>개</b></div>
@@ -161,11 +170,25 @@ const CARD_DEFS=[
  {name:'기술요소',need:'tech',ask:'기술요소는?'},
  {name:'그림',need:'imgs',ask:'개념도/그림을 그려 보세요'}];
 function cardsOf(t){return CARD_DEFS.map((c,ord)=>({...c,ord})).filter(c=>c.need==='imgs'?t.imgs.length:t[c.need])}
-function renderPreview(){const t=readForm();if(!t.topic&&!t.def&&!t.comp&&!t.tech&&!t.imgs.length){$('pv').innerHTML='<div class="empty">입력하면 여기에 카드 모양이 보입니다.</div>';return}
+let MODE=prefs.get('mode','step');
+function renderPreview(){
+ $('pvHint').textContent=MODE==='step'?'— 토픽마다 1장, 뒷면에서 정의 → 구성요소 → 기술요소 → 그림 순서로 하나씩 엽니다':'— 내용이 있는 칸마다 카드 1장씩 만들어집니다';
+ const t=readForm();if(!t.topic&&!t.def&&!t.comp&&!t.tech&&!t.imgs.length){$('pv').innerHTML='<div class="empty">입력하면 여기에 카드 모양이 보입니다.</div>';return}
  const fig=t.imgs.map(u=>`<img src="${u}">`).join('');const dumH=s=>s?`<div class="dum">두음 <b>${esc(s)}</b></div>`:'';
- $('pv').innerHTML=cardsOf(t).map(c=>{let back='';
-  if(c.need==='def')back=nl(t.def);else if(c.need==='comp')back=dumH(t.dum)+listHTML(t.comp)+(fig?'<br>'+fig:'');else if(c.need==='tech')back=dumH(t.dumT)+listHTML(t.tech);else back=fig;
-  return `<div class="pv"><div class="q">${esc(t.topic||'(토픽)')}</div><div class="ask">▶ ${c.ask}</div><hr>${back}</div>`}).join('')||'<div class="empty">내용 칸을 채우면 카드가 생깁니다.</div>'}
+ const backOf=need=>need==='def'?nl(t.def):need==='comp'?dumH(t.dum)+listHTML(t.comp):need==='tech'?dumH(t.dumT)+listHTML(t.tech):fig;
+ const cs=cardsOf(t);
+ if(!cs.length){$('pv').innerHTML='<div class="empty">내용 칸을 채우면 카드가 생깁니다.</div>';return}
+ if(MODE==='step'){
+  $('pv').innerHTML=`<div class="pv"><div class="q">${esc(t.topic||'(토픽)')}</div><div class="ask">▶ ${cs.map(c=>c.name).join(' → ')} 순서로 떠올려 보세요</div><hr>`+
+   cs.map(c=>`<div class="step" data-name="${c.name}"><div class="sh">${c.name}</div><div class="sb">${backOf(c.need)}</div></div>`).join('')+`<button class="nextBtn pri" type="button"></button></div>`;
+  stepper($('pv'));return}
+ $('pv').innerHTML=cs.map(c=>`<div class="pv"><div class="q">${esc(t.topic||'(토픽)')}</div><div class="ask">▶ ${c.ask}</div><hr>${backOf(c.need)+(c.need==='comp'&&fig?'<br>'+fig:'')}</div>`).join('')}
+// 미리보기와 Anki 카드가 같은 동작을 하도록 같은 코드 사용
+function stepper(root){var s=[].slice.call(root.querySelectorAll('.step')),b=root.querySelector('.nextBtn'),i=0;
+ function show(){s.forEach(function(e,k){e.classList.toggle('open',k<i)});if(!b)return;if(i>=s.length){b.style.display='none'}else{b.style.display='';b.textContent=s[i].getAttribute('data-name')+' 보기 ('+(i+1)+'/'+s.length+')'}}
+ if(b)b.onclick=function(e){e.stopPropagation();i++;show()};
+ s.forEach(function(e,k){e.querySelector('.sh').onclick=function(ev){ev.stopPropagation();i=(i>k)?k:k+1;show()}});show()}
+document.querySelectorAll('input[name=mode]').forEach(r=>{r.checked=r.value===MODE;r.onchange=()=>{MODE=r.value;prefs.set('mode',MODE);renderPreview()}});
 ['topic','def','comp','tech','dum','dumT'].forEach(k=>$(k).addEventListener('input',renderPreview));
 const dumBtn=(btn,src,dst,name)=>$(btn).onclick=()=>{const d=autoDum($(src).value);if(d){$(dst).value=d;renderPreview()}else msg(`${name}에 항목을 먼저 입력하세요.`,'err')};
 dumBtn('bDum','comp','dum','구성요소');dumBtn('bDumT','tech','dumT','기술요소');
@@ -199,7 +222,24 @@ const CSS=`.card{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;fo
 .it{margin:2px 0}.it[data-lv="1"]{padding-left:18px}.it[data-lv="2"]{padding-left:36px}.it[data-lv="3"]{padding-left:54px}
 .dum{background:#e8eefc;color:#1d1d1f;border-radius:6px;padding:3px 8px;display:inline-block;margin-bottom:6px}.dum b{color:#2f5bd3}
 .fig img{max-width:100%;border:1px solid #ddd;border-radius:4px;margin:6px 0;background:#fff}
-.tag{font-size:12px;color:#888}`;
+.tag{font-size:12px;color:#888}
+.order span+span::before{content:" → "}
+.step{border:1px solid #ccc;border-radius:8px;margin:8px 0}
+.step .sh{padding:8px 12px;font-weight:700;color:#2f5bd3;cursor:pointer}
+.step:not(.open) .sh::after{content:"  ▸ 눌러서 보기";font-weight:400;font-size:13px;color:#888}
+.step .sb{padding:0 12px 10px}
+.step:not(.open) .sb{display:none}
+.nextBtn{display:block;width:100%;margin-top:8px;padding:12px;font-size:16px;border:0;border-radius:8px;background:#2f5bd3;color:#fff}
+.nightMode .step,.night_mode .step{border-color:#444}.nightMode .step .sh,.night_mode .step .sh{color:#8fb0ff}`;
+const MID_STEP=1760000000201;
+const STEP_TMPL={name:'단계별 공개',
+ qfmt:'<div class="q">{{토픽}}</div><div class="ask">▶ <span class="order">{{#정의}}<span>정의</span>{{/정의}}{{#구성요소}}<span>구성요소</span>{{/구성요소}}{{#기술요소}}<span>기술요소</span>{{/기술요소}}{{#그림}}<span>그림</span>{{/그림}}</span> 순서로 떠올려 보세요</div>',
+ afmt:'{{FrontSide}}<hr id=answer><div id="steps">'+
+  '{{#정의}}<div class="step" data-name="정의"><div class="sh">정의</div><div class="sb">{{정의}}</div></div>{{/정의}}'+
+  '{{#구성요소}}<div class="step" data-name="구성요소"><div class="sh">구성요소</div><div class="sb">{{#두음}}<div class="dum">두음 <b>{{두음}}</b></div>{{/두음}}{{구성요소}}</div></div>{{/구성요소}}'+
+  '{{#기술요소}}<div class="step" data-name="기술요소"><div class="sh">기술요소</div><div class="sb">{{#기술두음}}<div class="dum">두음 <b>{{기술두음}}</b></div>{{/기술두음}}{{기술요소}}</div></div>{{/기술요소}}'+
+  '{{#그림}}<div class="step" data-name="그림"><div class="sh">그림</div><div class="sb fig">{{그림}}</div></div>{{/그림}}'+
+  '<button class="nextBtn" type="button"></button></div><script>(function(){'+stepper.toString()+';stepper(document.getElementById("steps"))})()<\/script>'};
 const FIELDS=['토픽','정의','구성요소','기술요소','그림','두음','기술두음'];
 const Q=(gate,ask)=>`{{#${gate}}}<div class="q">{{토픽}}</div><div class="ask">▶ ${ask}</div>{{/${gate}}}`;
 const TMPLS=[
@@ -212,7 +252,8 @@ function deckId(name){let h=0;for(const ch of name)h=(h*31+ch.codePointAt(0))%1e
 function b64ToBytes(u){const b=atob(u.split(',')[1]);const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a}
 async function sha1hex(s){const h=await crypto.subtle.digest('SHA-1',new TextEncoder().encode(s));return [...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join('')}
 let SQLp=null;
-async function buildApkg(list){
+async function buildApkg(list,mode){
+ const step=mode==='step',mid=step?MID_STEP:MID;
  if(typeof initSqlJs!=='function'||typeof JSZip!=='function')throw new Error('라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
  SQLp=SQLp||initSqlJs({locateFile:f=>'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/'+f});
  const SQL=await SQLp;const d=new SQL.Database();
@@ -220,20 +261,20 @@ async function buildApkg(list){
  const names=new Set();list.forEach(t=>{const p=t.deck.split('::');for(let i=1;i<=p.length;i++)names.add(p.slice(0,i).join('::'))});
  const deckObj=(id,name)=>({id,name,desc:'',mod:sec,usn:-1,collapsed:false,browserCollapsed:false,newToday:[0,0],revToday:[0,0],lrnToday:[0,0],timeToday:[0,0],dyn:0,extendNew:10,extendRev:50,conf:1});
  const decks={1:deckObj(1,'Default')};names.forEach(n=>decks[deckId(n)]=deckObj(deckId(n),n));
- const model={id:MID,name:'토픽 카드 (정의·구성·기술·그림)',type:0,mod:sec,usn:-1,sortf:0,did:deckId(list[0].deck),
-  tmpls:TMPLS.map((t,i)=>({...t,ord:i,did:null,bqfmt:'',bafmt:''})),
+ const model={id:mid,name:step?'토픽 카드 (단계별 공개)':'토픽 카드 (정의·구성·기술·그림)',type:0,mod:sec,usn:-1,sortf:0,did:deckId(list[0].deck),
+  tmpls:(step?[STEP_TMPL]:TMPLS).map((t,i)=>({...t,ord:i,did:null,bqfmt:'',bafmt:''})),
   flds:FIELDS.map((n,i)=>({name:n,ord:i,sticky:false,rtl:false,font:'Arial',size:20,media:[]})),
   css:CSS,latexPre:'\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n\\usepackage[utf8]{inputenc}\n\\usepackage{amssymb,amsmath}\n\\pagestyle{empty}\n\\setlength{\\parindent}{0in}\n\\begin{document}\n',latexPost:'\\end{document}',tags:[],vers:[],
-  req:[[0,'all',[1]],[1,'all',[2]],[2,'all',[3]],[3,'all',[4]]]};
+  req:step?[[0,'any',[0]]]:[[0,'all',[1]],[1,'all',[2]],[2,'all',[3]],[3,'all',[4]]]};
  const dconf={1:{id:1,name:'Default',replayq:true,lapse:{leechFails:8,minInt:1,delays:[10],leechAction:0,mult:0},rev:{perDay:200,fuzz:0.05,ivlFct:1,maxIvl:36500,ease4:1.3,bury:false,minSpace:1},timer:0,maxTaken:60,usn:0,new:{perDay:50,delays:[1,10],separate:true,ints:[1,4,7],initialFactor:2500,bury:false,order:0},mod:0,autoplay:true,dyn:false}};
- const conf={nextPos:1,estTimes:true,activeDecks:[1],sortType:'noteFld',timeLim:0,sortBackwards:false,addToCur:true,curDeck:1,newBury:true,newSpread:0,dueCounts:true,curModel:String(MID),collapseTime:1200};
+ const conf={nextPos:1,estTimes:true,activeDecks:[1],sortType:'noteFld',timeLim:0,sortBackwards:false,addToCur:true,curDeck:1,newBury:true,newSpread:0,dueCounts:true,curModel:String(mid),collapseTime:1200};
  d.run(`CREATE TABLE col (id integer primary key,crt integer not null,mod integer not null,scm integer not null,ver integer not null,dty integer not null,usn integer not null,ls integer not null,conf text not null,models text not null,decks text not null,dconf text not null,tags text not null);
 CREATE TABLE notes (id integer primary key,guid text not null,mid integer not null,mod integer not null,usn integer not null,tags text not null,flds text not null,sfld integer not null,csum integer not null,flags integer not null,data text not null);
 CREATE TABLE cards (id integer primary key,nid integer not null,did integer not null,ord integer not null,mod integer not null,usn integer not null,type integer not null,queue integer not null,due integer not null,ivl integer not null,factor integer not null,reps integer not null,lapses integer not null,left integer not null,odue integer not null,odid integer not null,flags integer not null,data text not null);
 CREATE TABLE revlog (id integer primary key,cid integer not null,usn integer not null,ivl integer not null,lastIvl integer not null,factor integer not null,time integer not null,type integer not null);
 CREATE TABLE graves (usn integer not null,oid integer not null,type integer not null);
 CREATE INDEX ix_notes_usn on notes (usn);CREATE INDEX ix_cards_usn on cards (usn);CREATE INDEX ix_revlog_usn on revlog (usn);CREATE INDEX ix_cards_nid on cards (nid);CREATE INDEX ix_cards_sched on cards (did, queue, due);CREATE INDEX ix_revlog_cid on revlog (cid);CREATE INDEX ix_notes_csum on notes (csum);`);
- d.run('insert into col values (1,?,?,?,11,0,0,0,?,?,?,?,?)',[sec,now,now,JSON.stringify(conf),JSON.stringify({[MID]:model}),JSON.stringify(decks),JSON.stringify(dconf),'{}']);
+ d.run('insert into col values (1,?,?,?,11,0,0,0,?,?,?,?,?)',[sec,now,now,JSON.stringify(conf),JSON.stringify({[mid]:model}),JSON.stringify(decks),JSON.stringify(dconf),'{}']);
  const zip=new JSZip();const media={};let mi=0,nCards=0,due=1;
  const ordered=[...list].sort((a,b)=>a.created-b.created);
  for(const t of ordered){
@@ -242,7 +283,9 @@ CREATE INDEX ix_notes_usn on notes (usn);CREATE INDEX ix_cards_usn on cards (usn
   const sfld=t.topic;const csum=parseInt((await sha1hex(sfld)).slice(0,8),16);
   const tags=t.tags?' '+t.tags.split(/\s+/).filter(Boolean).join(' ')+' ':'';
   const mod=Math.floor((t.updated||now)/1000);
-  d.run("insert into notes values (?,?,?,?,-1,?,?,?,?,0,'')",[t.id,'tp'+t.id.toString(36),MID,mod,tags,flds.join('\x1f'),sfld,csum]);
+  // 방식마다 노트 유형이 달라 guid 접두어도 분리 (같은 토픽이라도 방식이 다르면 별개 노트)
+  d.run("insert into notes values (?,?,?,?,-1,?,?,?,?,0,'')",[step?t.id+1:t.id,(step?'ts':'tp')+t.id.toString(36),mid,mod,tags,flds.join('\x1f'),sfld,csum]);
+  if(step){d.run("insert into cards values (?,?,?,0,?,-1,0,0,?,0,0,0,0,0,0,0,0,'')",[(t.id+1)*10,t.id+1,deckId(t.deck),mod,due++]);nCards++;continue}
   for(const c of cardsOf(t)){d.run("insert into cards values (?,?,?,?,?,-1,0,0,?,0,0,0,0,0,0,0,0,'')",[t.id*10+c.ord,t.id,deckId(t.deck),c.ord,mod,due++]);nCards++}
  }
  zip.file('collection.anki2',d.export());d.close();
@@ -251,7 +294,7 @@ CREATE INDEX ix_notes_usn on notes (usn);CREATE INDEX ix_cards_usn on cards (usn
 }
 $('bExport').onclick=async()=>{if(!topics.length)return msg('저장된 토픽이 없습니다.','err');
  const b=$('bExport');b.disabled=true;msg('Anki 파일 만드는 중…');
- try{const {blob,nCards}=await buildApkg(topics);download(blob,`토픽카드_${stamp()}.apkg`);msg(`토픽 ${topics.length}개 · 카드 ${nCards}장을 담은 .apkg를 받았습니다. Anki에서 열면 추가(이미 있던 토픽은 업데이트)됩니다.`,'ok')}
+ try{const {blob,nCards}=await buildApkg(topics,MODE);download(blob,`토픽카드_${stamp()}.apkg`);msg(`토픽 ${topics.length}개 · 카드 ${nCards}장을 담은 .apkg를 받았습니다. Anki에서 열면 추가(이미 있던 토픽은 업데이트)됩니다.`,'ok')}
  catch(e){msg('만들기 실패: '+e.message,'err')}finally{b.disabled=false}};
 
 // ---------- init ----------
