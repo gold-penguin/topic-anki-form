@@ -42,7 +42,7 @@ body.dragging::after{content:"놓으면 그림으로 추가됩니다";position:f
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
 .msg{font-size:13px;margin-top:8px;min-height:20px}
 .msg.ok{color:var(--ok)}.msg.err{color:var(--warn)}
-#toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:50;max-width:calc(100vw - 32px);background:var(--card);border:1px solid var(--line);border-left:4px solid var(--acc);border-radius:8px;padding:9px 14px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.18);display:none}
+#toast{position:fixed;left:50%;bottom:16px;pointer-events:none;transform:translateX(-50%);z-index:50;max-width:calc(100vw - 32px);background:var(--card);border:1px solid var(--line);border-left:4px solid var(--acc);border-radius:8px;padding:9px 14px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.18);display:none}
 #toast.ok{border-left-color:var(--ok)}#toast.err{border-left-color:var(--warn);color:var(--warn)}
 .list{margin-top:10px;display:flex;flex-direction:column;gap:6px;max-height:70vh;overflow:auto}
 .item{border:1px solid var(--line);border-radius:8px;padding:7px 10px;cursor:pointer}
@@ -66,6 +66,8 @@ body.dragging::after{content:"놓으면 그림으로 추가됩니다";position:f
 .step:not(.open) .sh::after{content:"  ▸ 눌러서 보기";font-weight:400;font-size:12px;color:var(--sub)}
 .step .sb{padding:0 10px 8px}
 .step:not(.open) .sb{display:none}
+.step.dumOnly .sb>:not(.dum){display:none}
+.step.dumOnly .sh::after{content:"  ▸ 눌러서 상세 보기";font-weight:400;font-size:12px;color:var(--sub)}
 .nextBtn{width:100%;margin-top:6px}
 .extra{border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:8px;padding:8px;margin-bottom:8px}
 .extra .xname{font-weight:700}
@@ -275,7 +277,7 @@ let MODE=prefs.get('mode','step');
 const dumH=s=>s?`<div class="dum">두음 <b>${esc(s)}</b></div>`:'';
 const extraStep=x=>`<div class="step" data-name="${esc(x.name)}"><div class="sh">${esc(x.name)}</div><div class="sb">${dumH(x.dum)}${listHTML(x.body)}</div></div>`;
 function renderPreview(){
- $('pvHint').textContent=MODE==='step'?'— 토픽마다 1장, 뒷면에서 정의 → 구성요소 → 기술요소 → 세부항목 → 그림 순서로 하나씩 엽니다':'— 내용이 있는 칸마다 카드 1장씩 (세부항목은 모아서 1장)';
+ $('pvHint').textContent=MODE==='step'?'— 토픽마다 1장, 뒷면에서 정의 → 구성요소 → 기술요소 → 세부항목 → 그림 순서로 하나씩 엽니다 (두음이 있는 칸은 두음 먼저, 상세는 다음에)':'— 내용이 있는 칸마다 카드 1장씩 (세부항목은 모아서 1장)';
  const t=readForm();if(!t.topic&&!stepsOf(t).length){$('pv').innerHTML='<div class="empty">입력하면 여기에 카드 모양이 보입니다.</div>';return}
  const fig=t.imgs.map(u=>`<img src="${u}">`).join('');
  const backOf=c=>c.need==='def'?nl(t.def):c.need==='comp'?dumH(t.dum)+listHTML(t.comp):c.need==='tech'?dumH(t.dumT)+listHTML(t.tech):c.need==='x'?dumH(c.x.dum)+listHTML(c.x.body):c.need==='extra'?`<div class="allopen">${extrasOf(t).map(extraStep).join('')}</div>`:fig;
@@ -287,10 +289,18 @@ function renderPreview(){
  const cs=cardsOf(t);
  $('pv').innerHTML=cs.map(c=>`<div class="pv"><div class="q">${esc(t.topic||'(토픽)')}</div><div class="ask">▶ ${esc(c.ask)}</div><hr>${backOf(c)+(c.need==='comp'&&fig?'<br>'+fig:'')}</div>`).join('')||'<div class="empty">내용 칸을 채우면 카드가 생깁니다.</div>'}
 // 미리보기와 Anki 카드가 같은 동작을 하도록 같은 코드 사용
-function stepper(root){var s=[].slice.call(root.querySelectorAll('.step')),b=root.querySelector('.nextBtn'),i=0;
- function show(){s.forEach(function(e,k){e.classList.toggle('open',k<i)});if(!b)return;if(i>=s.length){b.style.display='none'}else{b.style.display='';b.textContent=s[i].getAttribute('data-name')+' 보기 ('+(i+1)+'/'+s.length+')'}}
+// 두음이 있는 단계는 두 번에 나눠 공개: 두음 먼저(.dumOnly) → 상세
+function stepper(root){var s=[].slice.call(root.querySelectorAll('.step')),b=root.querySelector('.nextBtn'),u=[],i=0;
+ s.forEach(function(e,k){var d=e.querySelector('.dum');if(d&&d.textContent.trim())u.push({k:k,dum:1});u.push({k:k,dum:0})});
+ function first(k){for(var j=0;j<u.length;j++)if(u[j].k===k)return j}
+ function last(k){for(var j=u.length-1;j>=0;j--)if(u[j].k===k)return j}
+ function show(){s.forEach(function(e,k){var o=i>first(k),full=i>last(k);e.classList.toggle('open',o);e.classList.toggle('dumOnly',o&&!full)});
+  if(!b)return;if(i>=u.length){b.style.display='none';return}
+  var c=u[i],twoPart=first(c.k)!==last(c.k);b.style.display='';
+  b.textContent=s[c.k].getAttribute('data-name')+(twoPart?(c.dum?' 두음':' 상세'):'')+' 보기 ('+(i+1)+'/'+u.length+')'}
  if(b)b.onclick=function(e){e.stopPropagation();i++;show()};
- s.forEach(function(e,k){e.querySelector('.sh').onclick=function(ev){ev.stopPropagation();i=(i>k)?k:k+1;show()}});show()}
+ // 제목 누르기: 닫힘 → 두음까지, 두음만 → 상세까지, 다 열림 → 이 단계부터 닫기
+ s.forEach(function(e,k){e.querySelector('.sh').onclick=function(ev){ev.stopPropagation();var f=first(k),l=last(k);i=i>l?f:i>f?l+1:f+1;show()}});show()}
 document.querySelectorAll('input[name=mode]').forEach(r=>{r.checked=r.value===MODE;r.onchange=()=>{MODE=r.value;prefs.set('mode',MODE);renderPreview()}});
 ['topic','def','comp','tech','dum','dumT'].forEach(k=>$(k).addEventListener('input',renderPreview));
 const dumBtn=(btn,src,dst,name)=>$(btn).onclick=()=>{const d=autoDum($(src).value);if(d){$(dst).value=d;renderPreview()}else msg(`${name}에 항목을 먼저 입력하세요.`,'err')};
@@ -459,6 +469,8 @@ const CSS=`.card{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;fo
 .step:not(.open) .sh::after{content:"  ▸ 눌러서 보기";font-weight:400;font-size:13px;color:#888}
 .step .sb{padding:0 12px 10px}
 .step:not(.open) .sb{display:none}
+.step.dumOnly .sb>:not(.dum){display:none}
+.step.dumOnly .sh::after{content:"  ▸ 눌러서 상세 보기";font-weight:400;font-size:13px;color:#888}
 .nextBtn{display:block;width:100%;margin-top:8px;padding:12px;font-size:16px;border:0;border-radius:8px;background:#2f5bd3;color:#fff}
 .list span+span::before{content:" · "}
 .allopen .sb{display:block!important}.allopen .sh{cursor:default}.allopen .sh::after{content:none!important}
