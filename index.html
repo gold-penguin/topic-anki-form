@@ -32,7 +32,9 @@ button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
 button.del{color:var(--warn)}
 button:disabled{opacity:.5;cursor:default}
 .drop{border:2px dashed var(--line);border-radius:10px;padding:14px;text-align:center;color:var(--sub);font-size:13px;cursor:pointer}
-.drop.over{border-color:var(--acc);background:var(--acc2)}
+.drop.over,body.dragging .drop{border-color:var(--acc);background:var(--acc2)}
+body.dragging::after{content:"놓으면 그림으로 추가됩니다";position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:var(--acc);background:color-mix(in srgb,var(--bg) 70%,transparent);border:3px dashed var(--acc);pointer-events:none}
+.thumb[draggable]{cursor:grab}.thumb.dragsrc{opacity:.4}.thumb.dropto{outline:2px solid var(--acc)}
 .thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .thumb{position:relative;border:1px solid var(--line);border-radius:6px;background:#fff}
 .thumb img{display:block;height:90px;max-width:200px;object-fit:contain}
@@ -114,8 +116,9 @@ dialog legend{font-weight:700;padding:0 4px}
  <label>세부항목 <small>이름을 직접 정해 칸 추가 · 내용 형식은 구성요소와 같음 · ↑↓로 순서 변경</small></label>
  <div id="extras"></div>
  <div class="row"><button id="bAddExtra" type="button">+ 세부항목 추가</button><span class="hint" style="margin:0">빠른 추가:</span><span id="chips" class="row" style="gap:4px"></span></div>
- <label>그림 <small>클릭·끌어놓기·Ctrl+V 붙여넣기</small></label>
+ <label>그림 <small>클릭해서 선택 · 페이지 아무 곳에나 끌어놓기(파일·웹 그림) · Ctrl+V 붙여넣기 · 그림끼리 끌어서 순서 변경</small></label>
  <div class="drop" id="drop">그림을 여기에 놓거나 클릭해서 선택 (여러 장 가능)</div>
+ <div class="row" style="margin-top:6px"><button id="bPaste" type="button">클립보드 그림 붙여넣기</button><span class="hint" style="margin:0">캡처·“이미지 복사”한 그림</span></div>
  <input type="file" id="fImg" accept="image/*" multiple hidden>
  <div class="thumbs" id="thumbs"></div>
  <label for="tags">태그 <small>(띄어쓰기로 구분, 선택)</small></label>
@@ -213,14 +216,47 @@ $('extras').addEventListener('click',e=>{const b=e.target.closest('button[data-a
 // ---------- images ----------
 function addFiles(files){[...files].filter(f=>f.type.startsWith('image/')).forEach(f=>{const r=new FileReader();r.onload=()=>shrink(r.result).then(u=>{imgs.push(u);renderThumbs();renderPreview()});r.readAsDataURL(f)})}
 function shrink(src){return new Promise(res=>{const im=new Image();im.onload=()=>{const s=Math.min(1,1400/im.width);const c=document.createElement('canvas');c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(im,0,0,c.width,c.height);res(c.toDataURL('image/jpeg',0.85))};im.onerror=()=>res(src);im.src=src})}
-function renderThumbs(){$('thumbs').innerHTML=imgs.map((u,i)=>`<div class="thumb"><img src="${u}" alt="그림 ${i+1}"><button data-i="${i}" title="빼기">✕</button></div>`).join('')}
+function renderThumbs(){$('thumbs').innerHTML=imgs.map((u,i)=>`<div class="thumb" draggable="true" data-i="${i}"><img src="${u}" alt="그림 ${i+1}" draggable="false"><button data-i="${i}" title="빼기">✕</button></div>`).join('')}
 $('thumbs').onclick=e=>{const b=e.target.closest('button');if(b){imgs.splice(+b.dataset.i,1);renderThumbs();renderPreview()}};
 $('drop').onclick=()=>$('fImg').click();
 $('fImg').onchange=e=>{addFiles(e.target.files);e.target.value=''};
-$('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('over')};
-$('drop').ondragleave=()=>$('drop').classList.remove('over');
-$('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('over');addFiles(e.dataTransfer.files)};
-document.addEventListener('paste',e=>{const f=[...(e.clipboardData?.items||[])].filter(i=>i.type.startsWith('image/')).map(i=>i.getAsFile());if(f.length){e.preventDefault();addFiles(f)}});
+// 웹 그림(주소)은 CORS가 허용된 경우만 받아올 수 있음 → 안 되면 "이미지 복사 후 붙여넣기" 안내
+const blobURL=b=>new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(b)});
+async function addURL(u){
+ try{if(!/^data:image\//.test(u)){const r=await fetch(u);if(!r.ok)throw 0;const b=await r.blob();if(!b.type.startsWith('image/'))throw 0;u=await blobURL(b)}
+  imgs.push(await shrink(u));renderThumbs();renderPreview();return true}
+ catch(e){msg('이 사이트 그림은 바로 가져올 수 없습니다. 그림에서 우클릭 → “이미지 복사” 후 Ctrl+V로 붙여넣으세요.','err');return false}}
+const htmlImgs=h=>[...new DOMParser().parseFromString(h,'text/html').querySelectorAll('img[src]')].map(e=>e.src);
+function dropData(dt){const files=[...dt.files].filter(f=>f.type.startsWith('image/'));if(files.length)return addFiles(files);
+ const html=dt.getData('text/html'),srcs=html?htmlImgs(html):[];
+ const uris=dt.getData('text/uri-list').split(/\s+/).filter(l=>l&&!l.startsWith('#'));
+ const list=srcs.length?srcs:uris;if(!list.length)return msg('그림 파일이 아니라서 넣지 못했습니다.','err');
+ list.forEach(addURL)}
+// 페이지 어디에 놓아도 그림으로 받음 (그림 칸 밖에 놓으면 브라우저가 그림을 열어 버려서 입력이 날아감)
+// 글자를 입력칸으로 끌어놓는 것과 그림끼리 순서 바꾸기는 그대로 둠
+const THUMB='application/x-topic-thumb';
+const isText=el=>el&&el.closest&&el.closest('textarea,input:not([type=file]):not([type=radio]):not([type=checkbox])');
+const dragKind=e=>{const t=[...(e.dataTransfer?e.dataTransfer.types:[])];if(t.includes(THUMB)||$('dlgImp').open)return null;if(t.includes('Files'))return 'file';return (t.includes('text/uri-list')||t.includes('text/html'))?'web':null};
+let dragN=0;const dragEnd=()=>{dragN=0;document.body.classList.remove('dragging')};
+document.addEventListener('dragenter',e=>{const k=dragKind(e);if(!k||(k==='web'&&isText(e.target)))return;dragN++;document.body.classList.add('dragging')});
+document.addEventListener('dragleave',e=>{if(dragN&&--dragN<=0)dragEnd()});
+document.addEventListener('dragover',e=>{const k=dragKind(e);if(k&&!(k==='web'&&isText(e.target))){e.preventDefault();e.dataTransfer.dropEffect='copy'}});
+document.addEventListener('drop',e=>{const k=dragKind(e);dragEnd();if(!k||(k==='web'&&isText(e.target)))return;e.preventDefault();dropData(e.dataTransfer)});
+window.addEventListener('blur',dragEnd);
+// 그림끼리 끌어서 순서 바꾸기
+let thumbFrom=-1;
+$('thumbs').addEventListener('dragstart',e=>{const t=e.target.closest('.thumb');if(!t)return;thumbFrom=+t.dataset.i;e.dataTransfer.setData(THUMB,String(thumbFrom));e.dataTransfer.effectAllowed='move';t.classList.add('dragsrc')});
+$('thumbs').addEventListener('dragover',e=>{const t=e.target.closest('.thumb');if(thumbFrom<0||!t)return;e.preventDefault();document.querySelectorAll('.thumb.dropto').forEach(x=>x.classList.remove('dropto'));t.classList.add('dropto')});
+$('thumbs').addEventListener('drop',e=>{const t=e.target.closest('.thumb');if(thumbFrom<0||!t)return;e.preventDefault();const to=+t.dataset.i;if(to!==thumbFrom){const [m]=imgs.splice(thumbFrom,1);imgs.splice(to,0,m)}thumbFrom=-1;renderThumbs();renderPreview()});
+$('thumbs').addEventListener('dragend',()=>{thumbFrom=-1;renderThumbs()});
+document.addEventListener('paste',e=>{const items=[...(e.clipboardData?.items||[])];const f=items.filter(i=>i.type.startsWith('image/')).map(i=>i.getAsFile()).filter(Boolean);if(f.length){e.preventDefault();addFiles(f);return}
+ // 웹 페이지에서 그림이 섞인 부분을 복사해 입력칸 밖에 붙여넣은 경우
+ const html=e.clipboardData?.getData('text/html');if(html&&!isText(e.target)&&/<img/i.test(html)){e.preventDefault();htmlImgs(html).forEach(addURL)}});
+$('bPaste').onclick=async()=>{
+ if(!navigator.clipboard||!navigator.clipboard.read)return msg('이 브라우저는 버튼 붙여넣기를 지원하지 않습니다. 페이지를 한 번 누른 뒤 Ctrl+V를 눌러 주세요.','err');
+ try{const out=[];for(const it of await navigator.clipboard.read()){const t=it.types.find(x=>x.startsWith('image/'));if(t)out.push(new File([await it.getType(t)],'clip',{type:t}))}
+  if(!out.length)return msg('클립보드에 그림이 없습니다. 캡처하거나 “이미지 복사”를 먼저 하세요.','err');addFiles(out);msg('그림을 붙여넣었습니다.','ok')}
+ catch(e){msg('클립보드를 읽을 수 없습니다(권한 거부). Ctrl+V로 붙여넣어 주세요.','err')}};
 
 // ---------- cards ----------
 const CARD_DEFS=[
