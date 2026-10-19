@@ -277,7 +277,7 @@ let MODE=prefs.get('mode','step');
 const dumH=s=>s?`<div class="dum">두음 <b>${esc(s)}</b></div>`:'';
 const extraStep=x=>`<div class="step" data-name="${esc(x.name)}"><div class="sh">${esc(x.name)}</div><div class="sb">${dumH(x.dum)}${listHTML(x.body)}</div></div>`;
 function renderPreview(){
- $('pvHint').textContent=MODE==='step'?'— 토픽마다 1장, 뒷면에서 정의 → 구성요소 → 기술요소 → 세부항목 → 그림 순서로 하나씩 엽니다 (두음이 있는 칸은 두음 먼저, 상세는 다음에)':'— 내용이 있는 칸마다 카드 1장씩 (세부항목은 모아서 1장)';
+ $('pvHint').textContent=MODE==='step'?'— 토픽마다 1장, 뒷면에서 정의 → 구성요소 → 기술요소 → 세부항목 → 그림 순서로 하나씩 엽니다 (두음이 있는 칸은 두음 먼저, 상세는 다음에)':'— 내용이 있는 칸마다 카드 1장씩 (세부항목은 모아서 1장 · 두음이 있으면 두음 먼저, 상세는 버튼으로)';
  const t=readForm();if(!t.topic&&!stepsOf(t).length){$('pv').innerHTML='<div class="empty">입력하면 여기에 카드 모양이 보입니다.</div>';return}
  const fig=t.imgs.map(u=>`<img src="${u}">`).join('');
  const backOf=c=>c.need==='def'?nl(t.def):c.need==='comp'?dumH(t.dum)+listHTML(t.comp):c.need==='tech'?dumH(t.dumT)+listHTML(t.tech):c.need==='x'?dumH(c.x.dum)+listHTML(c.x.body):c.need==='extra'?`<div class="allopen">${extrasOf(t).map(extraStep).join('')}</div>`:fig;
@@ -287,7 +287,20 @@ function renderPreview(){
    ss.map(c=>`<div class="step" data-name="${esc(c.name)}"><div class="sh">${esc(c.name)}</div><div class="sb">${backOf(c)}</div></div>`).join('')+`<button class="nextBtn pri" type="button"></button></div>`;
   stepper($('pv'));return}
  const cs=cardsOf(t);
- $('pv').innerHTML=cs.map(c=>`<div class="pv"><div class="q">${esc(t.topic||'(토픽)')}</div><div class="ask">▶ ${esc(c.ask)}</div><hr>${backOf(c)+(c.need==='comp'&&fig?'<br>'+fig:'')}</div>`).join('')||'<div class="empty">내용 칸을 채우면 카드가 생깁니다.</div>'}
+ // 칸별 따로도 두음이 있으면 두음만 먼저 보이고 상세는 버튼으로 (Anki 템플릿과 같은 구조)
+ const df=inner=>`<div class="df">${inner}<button class="nextBtn pri" type="button"></button></div>`;
+ const one=(name,dum,body)=>df(`<div class="step" data-name="${name}"><div class="sh">${name}</div><div class="sb">${dumH(dum)}${body}</div></div>`);
+ const compB=listHTML(t.comp)+(fig?'<br>'+fig:'');
+ const splitBack=c=>c.need==='comp'?(t.dum?one('구성요소',t.dum,compB):compB):c.need==='tech'?(t.dumT?one('기술요소',t.dumT,listHTML(t.tech)):listHTML(t.tech)):c.need==='extra'?df(extrasOf(t).map(extraStep).join('')):backOf(c);
+ $('pv').innerHTML=cs.map(c=>`<div class="pv"><div class="q">${esc(t.topic||'(토픽)')}</div><div class="ask">▶ ${esc(c.ask)}</div><hr>${splitBack(c)}</div>`).join('')||'<div class="empty">내용 칸을 채우면 카드가 생깁니다.</div>';
+ document.querySelectorAll('#pv .df').forEach(dumFirst)}
+// 칸별 따로 카드 뒷면: 두음은 바로 보이고, 상세는 버튼(또는 제목)을 눌러야 보임. 두음 없는 칸은 처음부터 다 보임
+function dumFirst(root){var s=[].slice.call(root.querySelectorAll('.step')),b=root.querySelector('.nextBtn'),n=0;
+ s.forEach(function(e){e.classList.add('open');var d=e.querySelector('.dum');if(d&&d.textContent.trim()){e.classList.add('dumOnly');e.setAttribute('data-df','1');n++}});
+ function show(){if(!b)return;var w=s.filter(function(e){return e.classList.contains('dumOnly')});if(!w.length){b.style.display='none';return}
+  b.style.display='';b.textContent=w[0].getAttribute('data-name')+' 상세 보기'+(n>1?' ('+(n-w.length+1)+'/'+n+')':'')}
+ if(b)b.onclick=function(e){e.stopPropagation();var w=s.filter(function(x){return x.classList.contains('dumOnly')});if(w.length)w[0].classList.remove('dumOnly');show()};
+ s.forEach(function(e){e.querySelector('.sh').onclick=function(ev){ev.stopPropagation();if(e.getAttribute('data-df'))e.classList.toggle('dumOnly');show()}});show()}
 // 미리보기와 Anki 카드가 같은 동작을 하도록 같은 코드 사용
 // 두음이 있는 단계는 두 번에 나눠 공개: 두음 먼저(.dumOnly) → 상세
 function stepper(root){var s=[].slice.call(root.querySelectorAll('.step')),b=root.querySelector('.nextBtn'),u=[],i=0;
@@ -487,13 +500,16 @@ const STEP_TMPL={name:'단계별 공개',
   '<button class="nextBtn" type="button"></button></div><script>(function(){'+stepper.toString()+';stepper(document.getElementById("steps"))})()<\/script>'};
 // 세부항목은 개수가 자유라 필드 하나에 단계 블록(.step) HTML로 담고, 이름 목록은 앞면 순서 표시용으로 따로 담음
 const FIELDS=['토픽','정의','구성요소','기술요소','그림','두음','기술두음','세부항목','세부항목명'];
+// 칸별 따로: 두음이 있으면 두음 먼저 → 버튼으로 상세, 없으면 바로 상세
+const DF_JS='<script>(function(){'+dumFirst.toString()+';dumFirst(document.getElementById("df"))})()<\/script>';
+const DF=(name,dumF,body)=>`{{#${dumF}}}<div id="df"><div class="step" data-name="${name}"><div class="sh">${name}</div><div class="sb"><div class="dum">두음 <b>{{${dumF}}}</b></div>${body}</div></div><button class="nextBtn" type="button"></button></div>${DF_JS}{{/${dumF}}}{{^${dumF}}}${body}{{/${dumF}}}`;
 const Q=(gate,ask)=>`{{#${gate}}}<div class="q">{{토픽}}</div><div class="ask">▶ ${ask}</div>{{/${gate}}}`;
 const TMPLS=[
  {name:'정의',qfmt:Q('정의','정의는?'),afmt:'{{FrontSide}}<hr id=answer>{{정의}}'},
- {name:'구성요소',qfmt:Q('구성요소','구성요소는?'),afmt:'{{FrontSide}}<hr id=answer>{{#두음}}<div class="dum">두음 <b>{{두음}}</b></div>{{/두음}}{{구성요소}}{{#그림}}<div class="fig">{{그림}}</div>{{/그림}}'},
- {name:'기술요소',qfmt:Q('기술요소','기술요소는?'),afmt:'{{FrontSide}}<hr id=answer>{{#기술두음}}<div class="dum">두음 <b>{{기술두음}}</b></div>{{/기술두음}}{{기술요소}}'},
+ {name:'구성요소',qfmt:Q('구성요소','구성요소는?'),afmt:'{{FrontSide}}<hr id=answer>'+DF('구성요소','두음','{{구성요소}}{{#그림}}<div class="fig">{{그림}}</div>{{/그림}}')},
+ {name:'기술요소',qfmt:Q('기술요소','기술요소는?'),afmt:'{{FrontSide}}<hr id=answer>'+DF('기술요소','기술두음','{{기술요소}}')},
  {name:'그림',qfmt:Q('그림','개념도/그림을 그려 보세요'),afmt:'{{FrontSide}}<hr id=answer><div class="fig">{{그림}}</div>'},
- {name:'세부항목',qfmt:'{{#세부항목}}<div class="q">{{토픽}}</div><div class="ask">▶ <span class="list">{{세부항목명}}</span>은?</div>{{/세부항목}}',afmt:'{{FrontSide}}<hr id=answer><div class="allopen">{{세부항목}}</div>'}];
+ {name:'세부항목',qfmt:'{{#세부항목}}<div class="q">{{토픽}}</div><div class="ask">▶ <span class="list">{{세부항목명}}</span>은?</div>{{/세부항목}}',afmt:'{{FrontSide}}<hr id=answer><div id="df">{{세부항목}}<button class="nextBtn" type="button"></button></div>'+DF_JS}];
 function ankiList(txt){return parseLines(txt).map(o=>`<div class="it" data-lv="${o.lv}">${o.lv?'ㄴ ':'· '}<b>${esc(o.k)}</b>${o.d?': '+esc(o.d):''}</div>`).join('')}
 const ankiExtras=t=>extrasOf(t).map(x=>`<div class="step" data-name="${esc(x.name)}"><div class="sh">${esc(x.name)}</div><div class="sb">${x.dum?`<div class="dum">두음 <b>${esc(x.dum)}</b></div>`:''}${ankiList(x.body)}</div></div>`).join('');
 function deckId(name){let h=0;for(const ch of name)h=(h*31+ch.codePointAt(0))%1e8;return 1760000000000+h}
