@@ -40,6 +40,8 @@ button:disabled{opacity:.5;cursor:default}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
 .msg{font-size:13px;margin-top:8px;min-height:20px}
 .msg.ok{color:var(--ok)}.msg.err{color:var(--warn)}
+#toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:50;max-width:calc(100vw - 32px);background:var(--card);border:1px solid var(--line);border-left:4px solid var(--acc);border-radius:8px;padding:9px 14px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.18);display:none}
+#toast.ok{border-left-color:var(--ok)}#toast.err{border-left-color:var(--warn);color:var(--warn)}
 .list{margin-top:10px;display:flex;flex-direction:column;gap:6px;max-height:70vh;overflow:auto}
 .item{border:1px solid var(--line);border-radius:8px;padding:7px 10px;cursor:pointer}
 .item:hover,.item.sel{border-color:var(--acc);background:var(--acc2)}
@@ -69,6 +71,16 @@ button:disabled{opacity:.5;cursor:default}
 .extra .row button{padding:4px 9px}
 .chip{font-size:12px;padding:2px 8px;border-radius:999px}
 .allopen .sb{display:block!important}.allopen .sh::after{content:none!important}
+dialog{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:16px;width:min(720px,calc(100vw - 32px));max-height:calc(100vh - 48px)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog h2{font-size:16px;margin:0 0 6px}
+dialog fieldset{border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:8px 10px}
+dialog legend{font-weight:700;padding:0 4px}
+.impMode label{display:flex;gap:8px;align-items:flex-start;font-weight:400;margin:6px 0}
+.impMode label b{font-weight:700}
+.mapGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 10px}
+.mapGrid label{margin:4px 0 2px;font-size:12px}
+.mapGrid select{width:100%}
 </style>
 </head>
 <body>
@@ -79,6 +91,8 @@ button:disabled{opacity:.5;cursor:default}
 <button id="bBackup">백업 저장</button>
 <button id="bRestore">백업 불러오기</button>
 <input type="file" id="fRestore" accept=".json,application/json" hidden>
+<button id="bImport" title=".apkg · .colpkg · collection.anki2 읽어오기">Anki 파일 불러오기</button>
+<input type="file" id="fImport" accept=".apkg,.colpkg,.anki2,.anki21,.anki21b" hidden>
 <button id="bTheme" title="밝게/어둡게">테마</button>
 </header>
 <div class="wrap">
@@ -120,6 +134,17 @@ button:disabled{opacity:.5;cursor:default}
  <div class="list" id="list"></div>
 </section>
 </div>
+<div id="toast" role="status" aria-live="polite"></div>
+<dialog id="dlgImp"><form method="dialog" id="impForm">
+ <h2 id="impTitle">불러오기</h2>
+ <div class="hint" id="impInfo"></div>
+ <fieldset class="impMode"><legend>불러오는 방식</legend>
+  <label><input type="radio" name="impMode" value="merge" checked><span><b>누적</b> — 지금 저장된 토픽은 그대로 두고 추가합니다. 같은 토픽(이 페이지에서 만든 카드·전에 불러온 노트)은 불러온 내용으로 바뀝니다.</span></label>
+  <label><input type="radio" name="impMode" value="replace"><span><b>새로 불러오기</b> — 지금 저장된 토픽 <span id="impCur">0</span>개를 모두 지우고 이 파일 내용만 남깁니다.</span></label>
+ </fieldset>
+ <div id="impMap"></div>
+ <div class="actions"><button value="ok" id="impOk" class="pri">불러오기</button><button value="cancel" formnovalidate>취소</button></div>
+</form></dialog>
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -132,6 +157,7 @@ function tx(mode,fn){return new Promise((res,rej)=>{if(!db)return res(null);try{
 const dbAll=()=>tx('readonly',s=>s.getAll());
 const dbPut=o=>tx('readwrite',s=>s.put(o));
 const dbDel=id=>tx('readwrite',s=>s.delete(id));
+const dbClear=()=>tx('readwrite',s=>s.clear());
 const prefs={get(k,d){try{return localStorage.getItem('topicAnki.'+k)??d}catch(e){return d}},set(k,v){try{localStorage.setItem('topicAnki.'+k,v)}catch(e){}}};
 
 // ---------- field rendering (shared by preview and apkg) ----------
@@ -147,7 +173,10 @@ function fillForm(t){cur=t;$('deck').value=t?t.deck:prefs.get('deck','빅업141 
  $('extras').innerHTML='';(t&&t.extra||[]).forEach(x=>$('extras').appendChild(extraBlock(x)));
  if(!t&&prefs.get('tags',''))$('tags').value=prefs.get('tags','');
  $('formTitle').textContent=t?'토픽 수정':'새 토픽';$('bDelete').disabled=!t;renderThumbs();renderPreview();renderList();}
-function msg(t,cls){const m=$('msg');m.textContent=t;m.className='msg '+(cls||'');}
+// 폼 아래 메시지는 위쪽 버튼(백업·받기·불러오기)을 누를 때 화면 밖이라 안 보여서 화면 위에도 잠깐 띄움
+let toastT=0;
+function msg(t,cls){const m=$('msg');m.textContent=t;m.className='msg '+(cls||'');
+ const o=$('toast');if(!o)return;clearTimeout(toastT);o.textContent=t;o.className=cls||'';o.style.display=t?'block':'none';if(t)toastT=setTimeout(()=>o.style.display='none',cls==='err'?6000:3500)}
 async function save(){
  const f=readForm();
  if(!f.topic){msg('토픽을 입력하세요.','err');$('topic').focus();return}
@@ -248,9 +277,136 @@ $('bTheme').onclick=()=>{const r=document.documentElement;const dark=r.dataset.t
 // ---------- backup ----------
 function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000)}
 const stamp=()=>{const d=new Date(),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()%100}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`};
-$('bBackup').onclick=()=>{if(!topics.length)return msg('저장된 토픽이 없습니다.','err');download(new Blob([JSON.stringify({app:'topicAnki',v:1,topics})],{type:'application/json'}),`토픽백업_${stamp()}.json`);msg(`토픽 ${topics.length}개를 백업했습니다.`,'ok')};
+$('bBackup').onclick=()=>{if(!topics.length)return msg('저장된 토픽이 없습니다. 입력한 뒤 [저장]을 먼저 누르세요.','err');download(new Blob([JSON.stringify({app:'topicAnki',v:1,topics})],{type:'application/json'}),`토픽백업_${stamp()}.json`);msg(`토픽 ${topics.length}개를 백업했습니다.`,'ok')};
 $('bRestore').onclick=()=>$('fRestore').click();
-$('fRestore').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{const j=JSON.parse(await f.text());const arr=j.topics||[];let n=0;for(const t of arr){if(!t.id||!t.topic)continue;t.imgs=t.imgs||[];await dbPut(t);const i=topics.findIndex(x=>x.id===t.id);if(i>=0)topics[i]=t;else topics.push(t);n++}topics.sort((a,b)=>b.updated-a.updated);renderList();msg(`토픽 ${n}개를 불러왔습니다.`,'ok')}catch(err){msg('백업 파일을 읽지 못했습니다: '+err.message,'err')}};
+$('fRestore').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+ try{const j=JSON.parse(await f.text());const arr=(j.topics||[]).filter(t=>t&&t.id&&t.topic).map(t=>({...t,imgs:t.imgs||[]}));if(!arr.length)throw new Error('토픽이 없습니다');
+  openImp({kind:'json',name:f.name,topics:arr})}catch(err){msg('백업 파일을 읽지 못했습니다: '+err.message,'err')}};
+
+// ---------- Anki 파일 불러오기 (.apkg / .colpkg / collection.anki2) ----------
+// 최신 Anki 내보내기는 collection.anki21b·media가 zstd 압축(+media 목록은 protobuf)이라 그때만 fzstd를 불러옴
+const isZstd=u=>u[0]===0x28&&u[1]===0xB5&&u[2]===0x2F&&u[3]===0xFD;
+let ZSTDp=null;
+function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('압축 해제 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.'));document.head.appendChild(s)})}
+async function unz(u){if(!isZstd(u))return u;ZSTDp=ZSTDp||loadScript('https://cdn.jsdelivr.net/npm/fzstd@0.1.1/umd/index.js');await ZSTDp;return fzstd.decompress(u)}
+// MediaEntries { repeated MediaEntry entries = 1 }, MediaEntry { string name = 1; ... } — 순번 i가 zip 안 파일 이름
+function pbMedia(u){const names=[];let p=0;const v=()=>{let r=0,s=0,b;do{b=u[p++];r+=(b&127)*2**s;s+=7}while(b&128);return r};
+ const skip=wt=>{if(wt===0)v();else if(wt===1)p+=8;else if(wt===5)p+=4;else if(wt===2){const l=v();p+=l}};
+ while(p<u.length){const tag=v();if(tag>>3!==1||(tag&7)!==2){skip(tag&7);continue}
+  const end=v()+p;let name='';while(p<end){const t=v();if(t>>3===1&&(t&7)===2){const l=v();name=new TextDecoder().decode(u.subarray(p,p+l));p+=l}else skip(t&7)}
+  names.push(name)}return names}
+async function getSQL(){if(typeof initSqlJs!=='function')throw new Error('라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');SQLp=SQLp||initSqlJs({locateFile:f=>'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/'+f});return SQLp}
+async function readAnki(file){
+ const buf=new Uint8Array(await file.arrayBuffer());let dbBytes,zip=null;const media={};
+ if(buf[0]===0x50&&buf[1]===0x4B){
+  if(typeof JSZip!=='function')throw new Error('라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
+  zip=await JSZip.loadAsync(buf);
+  // 최신 형식 파일에도 "업데이트하세요" 안내용 collection.anki2가 같이 들어 있어 anki21b를 먼저 봄
+  const pick=['collection.anki21b','collection.anki21','collection.anki2'].find(n=>zip.file(n));
+  if(!pick)throw new Error('Anki 파일 안에 컬렉션이 없습니다');
+  dbBytes=await unz(await zip.file(pick).async('uint8array'));
+  if(zip.file('media')){const raw=await unz(await zip.file('media').async('uint8array'));
+   if(raw[0]===0x7B){const j=JSON.parse(new TextDecoder().decode(raw));for(const k in j)media[j[k]]=k}
+   else pbMedia(raw).forEach((n,i)=>{if(n)media[n]=String(i)})}
+ }else dbBytes=await unz(buf);
+ if(new TextDecoder().decode(dbBytes.subarray(0,15))!=='SQLite format 3')throw new Error('Anki 파일 형식이 아닙니다');
+ const SQL=await getSQL();const d=new SQL.Database(dbBytes);
+ try{
+  const q=(s,p)=>{const st=d.prepare(s);if(p)st.bind(p);const r=[];while(st.step())r.push(st.getAsObject());st.free();return r};
+  const models={},decks={};
+  if(q("select 1 from sqlite_master where type='table' and name='notetypes'").length){
+   q('select id,name from notetypes').forEach(r=>models[r.id]={id:r.id,name:r.name,flds:[]});
+   q('select ntid,name from fields order by ntid,ord').forEach(r=>models[r.ntid]&&models[r.ntid].flds.push(r.name));
+   q('select id,name from decks').forEach(r=>decks[r.id]=String(r.name).split('\x1f').join('::'));
+  }else{const c=q('select models,decks from col')[0];const M=JSON.parse(c.models),D=JSON.parse(c.decks);
+   for(const k in M)models[k]={id:+k,name:M[k].name,flds:[...M[k].flds].sort((a,b)=>a.ord-b.ord).map(f=>f.name)};
+   for(const k in D)decks[k]=D[k].name}
+  const deckOf={};q('select nid,did from cards order by ord').forEach(r=>{if(!(r.nid in deckOf))deckOf[r.nid]=r.did});
+  const notes=q('select id,guid,mid,tags,flds,mod from notes order by id').map(r=>({id:r.id,guid:String(r.guid),mid:r.mid,tags:String(r.tags).trim(),f:String(r.flds).split('\x1f'),mod:r.mod,deck:decks[deckOf[r.id]]||''}));
+  return {notes,models,zip,media};
+ }finally{d.close()}
+}
+// 이 페이지가 만든 노트 유형(두 방식 모두)은 필드 이름으로 알아보고 그대로 되살림
+const OWN_FIELDS=['토픽','정의','구성요소','기술요소','그림'];
+const isOwn=m=>OWN_FIELDS.every(n=>m.flds.includes(n));
+const ROLES=[['topic','토픽 *'],['def','정의'],['comp','구성요소'],['tech','기술요소'],['imgs','그림'],['dum','두음'],['dumT','기술두음']];
+const GUESS={topic:/토픽|front|앞면|질문|문제|question|term|word|제목|title/i,def:/정의|back|뒷면|답|answer|definition|meaning|뜻/i,comp:/구성/,tech:/기술/,imgs:/그림|image|img|사진|picture|도식|figure/i,dum:/두음/};
+function guessMap(m){const map={},used=new Set();
+ for(const [r] of ROLES){const i=m.flds.findIndex((n,i)=>!used.has(i)&&GUESS[r]&&GUESS[r].test(n));if(i>=0){map[r]=i;used.add(i)}}
+ if(map.topic==null){const i=m.flds.findIndex((n,i)=>!used.has(i));if(i>=0){map.topic=i;used.add(i)}}
+ if(map.def==null){const i=m.flds.findIndex((n,i)=>!used.has(i));if(i>=0){map.def=i;used.add(i)}}
+ return map}
+const parseHTML=h=>new DOMParser().parseFromString('<body>'+String(h||'')+'</body>','text/html').body;
+function htmlText(h){const b=parseHTML(String(h||'').replace(/<br\s*\/?>/gi,'\n'));b.querySelectorAll('img,script,style').forEach(e=>e.remove());
+ b.querySelectorAll('div,p,li,tr,h1,h2,h3,h4,h5,h6').forEach(e=>e.append('\n'));
+ return b.textContent.replace(/ /g,' ').split('\n').map(l=>l.replace(/\s+$/,'')).join('\n').replace(/\n{3,}/g,'\n\n').trim()}
+// ankiList로 만든 <div class="it" data-lv> 목록 → "  키워드: 설명" 줄로 되돌림
+function listText(h){const b=parseHTML(h);const its=b.querySelectorAll('.it');if(!its.length)return htmlText(h);
+ return [...its].map(e=>{const lv=+(e.dataset.lv||0),k=(e.querySelector('b')||{}).textContent||'';const all=e.textContent.replace(/^(ㄴ|·)\s/,'');
+  const d=all.slice(k.length).replace(/^\s*:\s?/,'');return '  '.repeat(lv)+(k||d)+(k&&d?': '+d:'')}).join('\n')}
+const imgSrcs=h=>[...String(h||'').matchAll(/<img[^>]*?src=["']?([^"'>]+)/gi)].map(m=>m[1]);
+const MIME={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',bmp:'image/bmp'};
+async function mediaURL(imp,name){if(!imp.zip)return null;let key=imp.media[name];if(key==null){try{key=imp.media[decodeURIComponent(name)]}catch(e){}}
+ const f=key!=null&&imp.zip.file(key);if(!f)return null;const mime=MIME[(name.split('.').pop()||'').toLowerCase()];if(!mime)return null;
+ const u=await unz(await f.async('uint8array'));const url=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(new Blob([u],{type:mime}))});return shrink(url)}
+async function noteToTopic(imp,n,m,map,restX,i,base){
+ const F=k=>map[k]!=null?n.f[map[k]]||'':'';const own=map.own;
+ const srcs=own?imgSrcs(F('imgs')):Object.values(map).filter(x=>typeof x==='number').concat(restX?m.flds.map((_,k)=>k):[]).flatMap(k=>imgSrcs(n.f[k]));
+ const imgs=[];for(const s of [...new Set(srcs)]){const u=await mediaURL(imp,s);if(u)imgs.push(u)}
+ const t={deck:n.deck||prefs.get('deck','빅업141 토픽'),topic:htmlText(F('topic')).replace(/\s*\n\s*/g,' '),def:htmlText(F('def')),
+  comp:own?listText(F('comp')):htmlText(F('comp')),tech:own?listText(F('tech')):htmlText(F('tech')),dum:htmlText(F('dum')),dumT:htmlText(F('dumT')),extra:[],tags:n.tags,imgs};
+ if(own){parseHTML(n.f[m.flds.indexOf('세부항목')]).querySelectorAll('.step').forEach(s=>{const dm=s.querySelector('.dum b');const sb=s.querySelector('.sb');if(!sb)return;sb.querySelectorAll('.dum').forEach(e=>e.remove());t.extra.push({name:s.dataset.name||'세부항목',body:listText(sb.innerHTML),dum:dm?dm.textContent:''})})}
+ else if(restX){const usedIdx=new Set(Object.values(map));m.flds.forEach((name,k)=>{if(usedIdx.has(k))return;const body=htmlText(n.f[k]);if(body)t.extra.push({name,body,dum:''})})}
+ const upd=(n.mod||0)*1000||Date.now();
+ // 이 페이지 카드: guid 'tp'/'ts'+id(36진수) → 원래 토픽 id로 되살려서 누적 시 같은 토픽을 덮어씀
+ const g=own&&n.guid.match(/^t[ps]([0-9a-z]+)$/);const oid=g?parseInt(g[1],36):0;
+ if(oid>1e12){const old=topics.find(x=>x.id===oid);return {...t,id:oid,created:old?old.created:oid,updated:upd}}
+ const src='anki:'+n.guid,old=topics.find(x=>x.src===src);
+ return {...t,id:old?old.id:base+i,created:old?old.created:base+i,updated:upd,src}}
+let IMP=null;
+function openImp(imp){IMP=imp;$('impCur').textContent=topics.length;$('impForm').impMode.value='merge';
+ if(imp.kind==='json'){$('impTitle').textContent='백업 불러오기';$('impInfo').textContent=`${imp.name} · 토픽 ${imp.topics.length}개`;$('impMap').innerHTML=''}
+ else{$('impTitle').textContent='Anki 파일 불러오기';
+  const by={};imp.notes.forEach(n=>(by[n.mid]=by[n.mid]||[]).push(n));
+  const mids=Object.keys(by).filter(k=>imp.models[k]);
+  $('impInfo').textContent=`${imp.name} · 노트 ${imp.notes.length}개 · 노트 유형 ${mids.length}개`+(imp.zip?'':' · 그림 파일이 없는 컬렉션이라 그림은 빠집니다');
+  $('impMap').innerHTML=mids.map(k=>{const m=imp.models[k],cnt=by[k].length;
+   if(isOwn(m))return `<fieldset data-mid="${k}" data-own="1"><legend><label style="display:inline;margin:0"><input type="checkbox" class="inc" checked> ${esc(m.name)} — ${cnt}개</label></legend><div class="hint" style="margin:0">이 페이지에서 만든 카드라 칸(세부항목·두음 포함)을 그대로 되살립니다.</div></fieldset>`;
+   const g=guessMap(m);const opt=r=>`<option value="">(없음)</option>`+m.flds.map((f,i)=>`<option value="${i}" ${g[r]===i?'selected':''}>${esc(f)}</option>`).join('');
+   return `<fieldset data-mid="${k}"><legend><label style="display:inline;margin:0"><input type="checkbox" class="inc" checked> ${esc(m.name)} — ${cnt}개</label></legend>`+
+    `<div class="hint" style="margin:0 0 4px">필드: ${m.flds.map(esc).join(' · ')}</div><div class="mapGrid">`+
+    ROLES.map(([r,lab])=>`<div><label>${lab}</label><select data-r="${r}">${opt(r)}</select></div>`).join('')+
+    `</div><label style="font-weight:400"><input type="checkbox" class="restX" checked> 위에서 고르지 않은 필드는 세부항목으로 (필드 이름 = 항목명)</label></fieldset>`}).join('')}
+ $('dlgImp').showModal()}
+$('bImport').onclick=()=>$('fImport').click();
+$('fImport').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;msg('Anki 파일 읽는 중…');
+ try{const imp=await readAnki(f);if(!imp.notes.length)throw new Error('노트가 없습니다');msg('');openImp({kind:'anki',name:f.name,...imp})}
+ catch(err){msg('Anki 파일을 읽지 못했습니다: '+err.message,'err')}};
+$('dlgImp').addEventListener('close',async()=>{const imp=IMP;IMP=null;if(!imp||$('dlgImp').returnValue!=='ok')return;
+ const replace=$('impForm').impMode.value==='replace';
+ if(replace&&topics.length&&!confirm(`저장된 토픽 ${topics.length}개를 모두 지우고 새로 불러올까요?\n되돌릴 수 없으니 필요하면 먼저 '백업 저장'을 하세요.`))return;
+ let list=[],skipped=0;
+ try{
+  if(imp.kind==='json')list=imp.topics;
+  else{const base=Date.now();let i=0;
+   for(const fs of document.querySelectorAll('#impMap fieldset')){if(!fs.querySelector('.inc').checked)continue;
+    const m=imp.models[fs.dataset.mid],own=!!fs.dataset.own;let map={},restX=false;
+    if(own){map={own:true};for(const [r,n] of [['topic','토픽'],['def','정의'],['comp','구성요소'],['tech','기술요소'],['imgs','그림'],['dum','두음'],['dumT','기술두음']]){const k=m.flds.indexOf(n);if(k>=0)map[r]=k}}
+    else{fs.querySelectorAll('select[data-r]').forEach(s=>{if(s.value!=='')map[s.dataset.r]=+s.value});restX=fs.querySelector('.restX').checked;
+     if(map.topic==null){msg(`"${m.name}"의 토픽 필드를 고르세요.`,'err');return}}
+    for(const n of imp.notes.filter(n=>String(n.mid)===fs.dataset.mid)){
+     if(++i%20===0)msg(`불러오는 중… ${i}/${imp.notes.length}`);
+     const t=await noteToTopic(imp,n,m,map,restX,i,base);
+     if(!t.topic||(!t.def&&!t.comp&&!t.tech&&!t.extra.length&&!t.imgs.length)){skipped++;continue}
+     const j=list.findIndex(x=>x.id===t.id);if(j>=0)list[j]=t;else list.push(t)}}}
+  if(!list.length)return msg('불러올 토픽이 없습니다.'+(skipped?` (내용이 비어 건너뜀 ${skipped}개)`:''),'err');
+  if(replace){await dbClear();topics=[]}
+  let add=0,upd=0;
+  for(const t of list){await dbPut(t);const j=topics.findIndex(x=>x.id===t.id);if(j>=0){topics[j]=t;upd++}else{topics.push(t);add++}}
+  topics.sort((a,b)=>b.updated-a.updated);
+  if(replace||(cur&&!topics.some(x=>x.id===cur.id)))fillForm(null);else{if(cur)cur=topics.find(x=>x.id===cur.id);renderList()}
+  msg(replace?`기존 토픽을 지우고 ${list.length}개를 새로 불러왔습니다.`:[add&&`${add}개 추가`,upd&&`${upd}개 업데이트`].filter(Boolean).join(', ')+'했습니다.'+(skipped?` (토픽이나 내용이 비어 건너뜀 ${skipped}개)`:''),'ok')
+ }catch(err){msg('불러오기 실패: '+err.message,'err')}});
 
 // ---------- apkg export ----------
 const MID=1760000000200;
@@ -298,9 +454,8 @@ async function sha1hex(s){const h=await crypto.subtle.digest('SHA-1',new TextEnc
 let SQLp=null;
 async function buildApkg(list,mode){
  const step=mode==='step',mid=step?MID_STEP:MID;
- if(typeof initSqlJs!=='function'||typeof JSZip!=='function')throw new Error('라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
- SQLp=SQLp||initSqlJs({locateFile:f=>'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/'+f});
- const SQL=await SQLp;const d=new SQL.Database();
+ if(typeof JSZip!=='function')throw new Error('라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
+ const SQL=await getSQL();const d=new SQL.Database();
  const now=Date.now(),sec=Math.floor(now/1000);
  const names=new Set();list.forEach(t=>{const p=t.deck.split('::');for(let i=1;i<=p.length;i++)names.add(p.slice(0,i).join('::'))});
  const deckObj=(id,name)=>({id,name,desc:'',mod:sec,usn:-1,collapsed:false,browserCollapsed:false,newToday:[0,0],revToday:[0,0],lrnToday:[0,0],timeToday:[0,0],dyn:0,extendNew:10,extendRev:50,conf:1});
@@ -336,7 +491,7 @@ CREATE INDEX ix_notes_usn on notes (usn);CREATE INDEX ix_cards_usn on cards (usn
  zip.file('media',JSON.stringify(media));
  return {blob:await zip.generateAsync({type:'blob',compression:'DEFLATE'}),nCards};
 }
-$('bExport').onclick=async()=>{if(!topics.length)return msg('저장된 토픽이 없습니다.','err');
+$('bExport').onclick=async()=>{if(!topics.length)return msg('저장된 토픽이 없습니다. 입력한 뒤 [저장]을 먼저 누르세요.','err');
  const b=$('bExport');b.disabled=true;msg('Anki 파일 만드는 중…');
  try{const {blob,nCards}=await buildApkg(topics,MODE);download(blob,`토픽카드_${stamp()}.apkg`);msg(`토픽 ${topics.length}개 · 카드 ${nCards}장을 담은 .apkg를 받았습니다. Anki에서 열면 추가(이미 있던 토픽은 업데이트)됩니다.`,'ok')}
  catch(e){msg('만들기 실패: '+e.message,'err')}finally{b.disabled=false}};
