@@ -58,6 +58,7 @@ body.dragging::after{content:"놓으면 그림으로 추가됩니다";position:f
 .it{padding-left:calc(var(--lv,0)*16px)}
 .dum{background:var(--acc2);border-radius:6px;padding:2px 8px;display:inline-block;margin-bottom:4px}
 .dumx{display:block;font-weight:400;font-size:.88em;color:var(--sub)}.dumx i{display:none}
+.step.dumOnly .dumx{display:none}
 .hint{font-size:12px;color:var(--sub);margin-top:4px}
 .empty{color:var(--sub);font-size:13px;padding:16px 0;text-align:center}
 .mode{display:inline-flex;gap:10px;font-size:13px;border:1px solid var(--line);border-radius:8px;padding:5px 10px}
@@ -484,6 +485,7 @@ const CSS=`.card{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;fo
 .it{margin:2px 0}.it[data-lv="1"]{padding-left:18px}.it[data-lv="2"]{padding-left:36px}.it[data-lv="3"]{padding-left:54px}
 .dum{background:#e8eefc;color:#1d1d1f;border-radius:6px;padding:3px 8px;display:inline-block;margin-bottom:6px}.dum b{color:#2f5bd3}
 .dumx{display:block;font-weight:400;font-size:.88em;color:#555}.dumx i{display:none}
+.step.dumOnly .dumx{display:none}
 .fig img{max-width:100%;border:1px solid #ddd;border-radius:4px;margin:6px 0;background:#fff}
 .tag{font-size:12px;color:#888}
 .order span+span::before{content:" → "}
