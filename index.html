@@ -369,7 +369,11 @@ async function readAnki(file){
    else pbMedia(raw).forEach((n,i)=>{if(n)media[n]=String(i)})}
  }else dbBytes=await unz(buf);
  if(new TextDecoder().decode(dbBytes.subarray(0,15))!=='SQLite format 3')throw new Error('Anki 파일 형식이 아닙니다');
- const SQL=await getSQL();const d=new SQL.Database(dbBytes);
+ const SQL=await getSQL();let d=new SQL.Database(dbBytes);
+ // 최신 Anki 스키마는 Anki 전용 정렬 규칙(unicase)을 써서 fields·templates 조회가 실패함 → 스키마에서 빼고 다시 엶
+ if(d.exec("select 1 from sqlite_master where sql like '%unicase%'").length){
+  d.run('PRAGMA writable_schema=ON');d.run("update sqlite_master set sql=replace(sql,'COLLATE unicase','') where sql like '%unicase%'");d.run('PRAGMA writable_schema=OFF');
+  const fixed=d.export();d.close();d=new SQL.Database(fixed)}
  try{
   const q=(s,p)=>{const st=d.prepare(s);if(p)st.bind(p);const r=[];while(st.step())r.push(st.getAsObject());st.free();return r};
   const models={},decks={};
