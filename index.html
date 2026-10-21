@@ -57,6 +57,7 @@ body.dragging::after{content:"놓으면 그림으로 추가됩니다";position:f
 .pv img{max-width:100%;background:#fff}
 .it{padding-left:calc(var(--lv,0)*16px)}
 .dum{background:var(--acc2);border-radius:6px;padding:2px 8px;display:inline-block;margin-bottom:4px}
+.dumx{display:block;font-weight:400;font-size:.88em;color:var(--sub)}.dumx i{display:none}
 .hint{font-size:12px;color:var(--sub);margin-top:4px}
 .empty{color:var(--sub);font-size:13px;padding:16px 0;text-align:center}
 .mode{display:inline-flex;gap:10px;font-size:13px;border:1px solid var(--line);border-radius:8px;padding:5px 10px}
@@ -111,10 +112,10 @@ dialog legend{font-weight:700;padding:0 4px}
  <textarea id="def" placeholder="정의 문장"></textarea>
  <label for="comp">구성요소 <small>한 줄에 하나 · "키워드: 설명" · 앞에 공백 두 칸 = 하위</small></label>
  <textarea id="comp" class="tall" placeholder="입력부: 데이터를 받아들이는 부분&#10;처리부: …&#10;  하위 항목: …"></textarea>
- <div class="row" style="margin-top:6px"><span class="hint" style="margin:0">두음</span><input type="text" id="dum" placeholder="구성요소 두음 (선택)"><button id="bDum" type="button">구성요소로 자동</button></div>
+ <div class="row" style="margin-top:6px"><span class="hint" style="margin:0">두음</span><input type="text" id="dum" placeholder="구성요소 두음 (선택) · '두음 = 풀이'로 쓰면 풀이도 표시"><button id="bDum" type="button">구성요소로 자동</button></div>
  <label for="tech">기술요소 <small>형식은 구성요소와 같음</small></label>
  <textarea id="tech" class="tall" placeholder="기술1: 설명&#10;기술2: 설명"></textarea>
- <div class="row" style="margin-top:6px"><span class="hint" style="margin:0">두음</span><input type="text" id="dumT" placeholder="기술요소 두음 (선택)"><button id="bDumT" type="button">기술요소로 자동</button></div>
+ <div class="row" style="margin-top:6px"><span class="hint" style="margin:0">두음</span><input type="text" id="dumT" placeholder="기술요소 두음 (선택) · '두음 = 풀이'"><button id="bDumT" type="button">기술요소로 자동</button></div>
  <label>세부항목 <small>이름을 직접 정해 칸 추가 · 내용 형식은 구성요소와 같음 · ↑↓로 순서 변경</small></label>
  <div id="extras"></div>
  <div class="row"><button id="bAddExtra" type="button">+ 세부항목 추가</button><span class="hint" style="margin:0">빠른 추가:</span><span id="chips" class="row" style="gap:4px"></span></div>
@@ -169,7 +170,9 @@ const prefs={get(k,d){try{return localStorage.getItem('topicAnki.'+k)??d}catch(e
 function splitKey(t){const m=t.match(/^(.{1,40}?)\s*[:：]\s*(.*)$/);if(m)return [m[1],m[2]];const d=t.indexOf(' - ');if(d>0&&d<=40)return [t.slice(0,d),t.slice(d+3)];return [t,''];}
 function parseLines(txt){return String(txt||'').split('\n').filter(l=>l.trim()).map(l=>{const ind=l.match(/^[ \t\u3000]*/)[0].replace(/\t/g,'  ').length;let t=l.trim().replace(/^([-–•·*▪◦]|ㄴ)\s*/,'');const [k,d]=splitKey(t);return {lv:Math.min(3,Math.floor(ind/2)),k,d}})}
 function listHTML(txt){return parseLines(txt).map(o=>`<div class="it" style="--lv:${o.lv}">${o.lv?'ㄴ ':'· '}<b>${esc(o.k)}</b>${o.d?': '+esc(o.d):''}</div>`).join('')}
-function autoDum(txt){return parseLines(txt).filter(o=>o.lv===0).map(o=>{const c=o.k.replace(/^[\s\[\(<「'"]+/,'').match(/[가-힣A-Za-z0-9]/);return c?c[0].toUpperCase():''}).join('')}
+// 자동 두음: 최상위 항목 첫 글자 + 풀이(항목 이름들)
+function autoDum(txt){const top=parseLines(txt).filter(o=>o.lv===0);const d=top.map(o=>{const c=o.k.replace(/^[\s\[\(<「'"]+/,'').match(/[가-힣A-Za-z0-9]/);return c?c[0].toUpperCase():''}).join('');
+ return d?d+' = '+top.map(o=>o.k.replace(/^\d+[.)]\s*/,'')).join(', '):''}
 const nl=s=>esc(s).replace(/\n/g,'<br>');
 
 // ---------- form ----------
@@ -200,7 +203,7 @@ const CHIPS=['특징','장단점','절차','유형','고려사항','활용사례
 function extraBlock(x){x=x||{};const d=document.createElement('div');d.className='extra';
  d.innerHTML=`<div class="row"><input type="text" class="xname" placeholder="항목명 (예: 특징)"><button type="button" data-a="up" title="위로">↑</button><button type="button" data-a="down" title="아래로">↓</button><button type="button" data-a="del" class="del" title="이 칸 삭제">✕</button></div>`+
   `<textarea class="xbody" placeholder="키워드: 설명 (한 줄에 하나, 앞 공백 두 칸 = 하위)"></textarea>`+
-  `<div class="row" style="margin-top:6px"><span class="hint" style="margin:0">두음</span><input type="text" class="xdum" placeholder="두음 (선택)"><button type="button" data-a="dum">자동</button></div>`;
+  `<div class="row" style="margin-top:6px"><span class="hint" style="margin:0">두음</span><input type="text" class="xdum" placeholder="두음 (선택) · '두음 = 풀이'"><button type="button" data-a="dum">자동</button></div>`;
  d.querySelector('.xname').value=x.name||'';d.querySelector('.xbody').value=x.body||'';d.querySelector('.xdum').value=x.dum||'';return d}
 function readExtras(){return [...document.querySelectorAll('#extras .extra')].map(b=>({name:b.querySelector('.xname').value.trim(),body:b.querySelector('.xbody').value.replace(/\s+$/,''),dum:b.querySelector('.xdum').value.trim()})).filter(x=>x.name||x.body).map(x=>({...x,name:x.name||'세부항목'}))}
 function addExtra(name){const blk=extraBlock({name});$('extras').appendChild(blk);blk.querySelector(name?'.xbody':'.xname').focus();renderPreview()}
@@ -274,7 +277,9 @@ function cardsOf(t){const cs=CARD_DEFS.map((c,ord)=>({...c,ord})).filter(c=>c.ne
 function stepsOf(t){const s=[];if(t.def)s.push({name:'정의',need:'def'});if(t.comp)s.push({name:'구성요소',need:'comp'});if(t.tech)s.push({name:'기술요소',need:'tech'});
  extrasOf(t).forEach(x=>s.push({name:x.name,need:'x',x}));if(t.imgs.length)s.push({name:'그림',need:'imgs'});return s}
 let MODE=prefs.get('mode','step');
-const dumH=s=>s?`<div class="dum">두음 <b>${esc(s)}</b></div>`:'';
+// 두음 칸은 "두음 = 풀이"로 쓸 수 있음 → 두음은 굵게, 풀이는 아래 줄
+const dumIn=s=>{const m=String(s||'').match(/^([^=]*?)\s*=\s*([\s\S]+)$/);return m?`${esc(m[1])}<span class="dumx"><i> = </i>${esc(m[2])}</span>`:esc(s)};
+const dumH=s=>s?`<div class="dum">두음 <b>${dumIn(s)}</b></div>`:'';
 const extraStep=x=>`<div class="step" data-name="${esc(x.name)}"><div class="sh">${esc(x.name)}</div><div class="sb">${dumH(x.dum)}${listHTML(x.body)}</div></div>`;
 function renderPreview(){
  $('pvHint').textContent=MODE==='step'?'— 토픽마다 1장, 뒷면에서 정의 → 구성요소 → 기술요소 → 세부항목 → 그림 순서로 하나씩 엽니다 (두음이 있는 칸은 두음 먼저, 상세는 다음에)':'— 내용이 있는 칸마다 카드 1장씩 (세부항목은 모아서 1장 · 두음이 있으면 두음 먼저, 상세는 버튼으로)';
@@ -478,6 +483,7 @@ const CSS=`.card{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;fo
 .q{font-weight:700;font-size:19px}.ask{color:#2f5bd3;font-size:14px;margin-top:4px}
 .it{margin:2px 0}.it[data-lv="1"]{padding-left:18px}.it[data-lv="2"]{padding-left:36px}.it[data-lv="3"]{padding-left:54px}
 .dum{background:#e8eefc;color:#1d1d1f;border-radius:6px;padding:3px 8px;display:inline-block;margin-bottom:6px}.dum b{color:#2f5bd3}
+.dumx{display:block;font-weight:400;font-size:.88em;color:#555}.dumx i{display:none}
 .fig img{max-width:100%;border:1px solid #ddd;border-radius:4px;margin:6px 0;background:#fff}
 .tag{font-size:12px;color:#888}
 .order span+span::before{content:" → "}
@@ -515,7 +521,7 @@ const TMPLS=[
  {name:'그림',qfmt:Q('그림','개념도/그림을 그려 보세요'),afmt:'{{FrontSide}}<hr id=answer><div class="fig">{{그림}}</div>'},
  {name:'세부항목',qfmt:'{{#세부항목}}<div class="q">{{토픽}}</div><div class="ask">▶ <span class="list">{{세부항목명}}</span>은?</div>{{/세부항목}}',afmt:'{{FrontSide}}<hr id=answer><div id="df">{{세부항목}}<button class="nextBtn" type="button"></button></div>'+DF_JS}];
 function ankiList(txt){return parseLines(txt).map(o=>`<div class="it" data-lv="${o.lv}">${o.lv?'ㄴ ':'· '}<b>${esc(o.k)}</b>${o.d?': '+esc(o.d):''}</div>`).join('')}
-const ankiExtras=t=>extrasOf(t).map(x=>`<div class="step" data-name="${esc(x.name)}"><div class="sh">${esc(x.name)}</div><div class="sb">${x.dum?`<div class="dum">두음 <b>${esc(x.dum)}</b></div>`:''}${ankiList(x.body)}</div></div>`).join('');
+const ankiExtras=t=>extrasOf(t).map(x=>`<div class="step" data-name="${esc(x.name)}"><div class="sh">${esc(x.name)}</div><div class="sb">${dumH(x.dum)}${ankiList(x.body)}</div></div>`).join('');
 function deckId(name){let h=0;for(const ch of name)h=(h*31+ch.codePointAt(0))%1e8;return 1760000000000+h}
 function b64ToBytes(u){const b=atob(u.split(',')[1]);const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a}
 async function sha1hex(s){const h=await crypto.subtle.digest('SHA-1',new TextEncoder().encode(s));return [...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join('')}
@@ -546,7 +552,7 @@ CREATE INDEX ix_notes_usn on notes (usn);CREATE INDEX ix_cards_usn on cards (usn
  const ordered=[...list].sort((a,b)=>a.created-b.created);
  for(const t of ordered){
   const figs=t.imgs.map((u,i)=>{const name=`topic_${t.id}_${i+1}.jpg`;zip.file(String(mi),b64ToBytes(u));media[mi++]=name;return `<img src="${name}">`}).join('');
-  const flds=[esc(t.topic),nl(t.def),ankiList(t.comp),ankiList(t.tech),figs,esc(t.dum),esc(t.dumT),ankiExtras(t),extrasOf(t).map(x=>`<span>${esc(x.name)}</span>`).join('')];
+  const flds=[esc(t.topic),nl(t.def),ankiList(t.comp),ankiList(t.tech),figs,dumIn(t.dum),dumIn(t.dumT),ankiExtras(t),extrasOf(t).map(x=>`<span>${esc(x.name)}</span>`).join('')];
   const sfld=t.topic;const csum=parseInt((await sha1hex(sfld)).slice(0,8),16);
   const tags=t.tags?' '+t.tags.split(/\s+/).filter(Boolean).join(' ')+' ':'';
   const mod=Math.floor((t.updated||now)/1000);
